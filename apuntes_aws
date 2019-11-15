@@ -1,0 +1,1002 @@
+access: AKIASQW34ETBAF562NYT
+secret: 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
+
+
+cat serverless.yml
+
+service: srv-hsbc06
+
+provider:
+  name: aws
+  runtime: nodejs10.x
+#  stage: dev #Para linea de comandos
+  stage: ${env:STAGE}
+  region: us-east-1
+# Estas 2 lineas de abajo para archio de propiedades  
+  memorySize: ${file(config/config.${self:provider.stage}.yml):SIZE}
+  versionFunctions: ${file(config/config.${self:provider.stage}.yml):VERSION}
+
+custom:
+  config:
+    stage-default: ${self:provider.stage}
+    stage-active: ${opt:stage, self:custom.config.stage-default}
+  
+functions:
+  hello:
+    handler: handler.hello
+
+
+
+archivo config/config.dev.yml
+SIZE: 2048
+VERSION: false
+
+
+serverless create --template aws-nodejs --path hsbc-data06 --name srv-data06
+
+serverless deploy
+
+serverless invoke -f hello
+serverless invoke -f hello -d '{"Nombre":"CURSO DE ENTRENAMIENTO"}'
+
+cat serverless.yml
+
+
+service: srv-data06
+
+provider:
+  name: aws
+  runtime: nodejs10.x
+
+functions:
+  hello:
+    handler: handler.hello
+    events:
+      - http:
+         path: hello/{name}
+         method: get
+
+  showUser:
+    handler: handler.showUser
+    events:	
+      - http:
+         path: user
+         method: post
+
+
+------
+cat serverless.yml
+
+service: srv-data06
+
+#plugins:
+#  - serverless-deployment-bucket
+
+provider:
+  name: aws
+  runtime: nodejs10.x
+  deploymentBucket:
+    name: cttraining-artifact
+    #name: ${self:custom.config.${self:provider.stage}.bucket-name}
+    serverSideEncryption: AES256
+
+functions:
+  hello:
+    handler: handler.greeting
+    events:
+      - http:
+          path: hello/{name}
+          method: get
+
+  showUser:
+    handler: handler.showUser
+    events:
+      - http:
+          path: user
+          method: post
+          
+
+
+
+cat handler.js
+
+'use strict';
+
+const queryString = require('querystring');
+
+module.exports.hello = async event => {
+  return {
+    statusCode: 200,
+    body: JSON.stringify(
+      {
+        message: `Go Serverless v1.0! Your function executed successfully!' ${event.pathParameters.name}`,
+        input: event.name,
+      },
+      null,
+      2
+    ),
+  };
+
+  // Use this code if you don't use the http event with the LAMBDA-PROXY integration
+  // return { message: 'Go Serverless v1.0! Your function executed successfully!', event };
+};
+
+ module.exports.showUser = async (event, context) => {
+  const body = queryString.parse(event['body']);
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      message: `Petición POST`,
+      input: `Hola ${body.name} ${body.lastname}`,
+    }),
+  };
+};
+
+--------------------
+'use strict';
+const queryString = require('querystring');
+
+module.exports.greeting = async event => {
+  return {
+    statusCode: 200,
+    body: JSON.stringify(
+      {
+        message: `Go Serverless v1.0! Your function executed successfully! ${event.pathParameters.name}`,
+        input: event.name,
+      },
+      null,
+      2
+    ),
+  };
+
+  // Use this code if you don't use the http event with the LAMBDA-PROXY integration
+  // return { message: 'Go Serverless v1.0! Your function executed successfully!', event };
+};
+
+
+module.exports.showUser = async (event, context) => {
+  const body = queryString.parse(event['body']);
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      message: `Petición POST`,
+      input: `Hola ${body.name} ${body.lastname}`,
+    }),
+  };
+};
+
+
+
+sls deploy
+
+GET
+curl https://upz1a4ys8g.execute-api.us-east-1.amazonaws.com/dev/hello/Rodrigo Albarran Servin
+
+POST
+curl -d "name=Rodrigo&lastname=Albarran" -X POST https://upz1a4ys8g.execute-api.us-east-1.amazonaws.com/dev/user
+
+======================================================
+15Nov2019
+
+serverless create --template aws-nodejs --path constraints-06 --name constraints-srv-06 && cd constraints-06
+npm init -y
+mkdir constraints
+npm install zxcvbn
+npm install --save-dev serverless-plugin-include-dependencies
+
+cat handler.js
+
+'use strict';
+
+const {
+  verifyPasswordLength, verifyPasswordStrength
+} = require('./constraints');
+
+module.exports.password = async (event, context) => {
+  try {
+    const {password} = event.pathParameters;
+    await verifyPasswordLength(password);
+    const {score} = await verifyPasswordStrength(password);
+    
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        message: `Password score: ${score}`
+      })
+    }
+  } catch (e) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        message: `Error: ${e.message}`,
+        score: e.score
+      })
+    }
+  }
+};
+
+
+cat serverless.yml
+
+service: constraints-srv-06
+
+plugins:
+  - serverless-plugin-include-dependencies
+
+provider:
+  name: aws
+  runtime: nodejs10.x
+  stage: dev
+  region: us-east-1
+  deploymentBucket:
+    name: cttraining-artifact
+    serverSideEncryption: AES256
+
+custom:
+  config:
+    stack_name: ${self:service}-${self:provider.stage}
+    deploymentBucket:
+      versioning: true
+
+package:
+  exclude:
+    - node_modules/**
+
+functions:
+  password:
+    handler: handler.password
+    events: 
+      - http:
+          path: password/{password}
+          method: get
+
+
+Dentro de la carpeta constraints
+
+cat index.js
+
+module.exports = {
+  verifyPasswordLength: require('./verifyPasswordLength'),
+  verifyPasswordStrength: require('./verifyPasswordStrength'),
+};
+
+
+cat verifyPasswordLength.js
+
+module.exports = password => {
+    if ( password.length < 8 ) {
+      return Promise.reject({
+        message: 'La longitud del password es menor 8 caracteres'
+      })
+    }
+    return Promise.resolve('El password cumple la validacion de longitud mayor a 8');
+};
+
+
+cat verifyPasswordStrength.js
+
+const zxcvbn = require('zxcvbn');
+
+module.exports = password => {
+  const score = zxcvbn(password).score;
+  if ( score < 2 ) {
+    return Promise.reject({
+      message: 'El password es muy débil',
+      score
+    })
+  }
+  return Promise.resolve({
+    message: 'El password tiene una fortalaza buena',
+    score
+  });
+};
+
+
+sls deploy
+
+Salida
+https://yrvqeo1c17.execute-api.us-east-1.amazonaws.com/dev/password/{password}
+
+En el navegador
+https://yrvqeo1c17.execute-api.us-east-1.amazonaws.com/dev/password/123
+
+Respuesta:
+{"message":"Error: La longitud del password es menor 8 caracteres"}
+
+GET
+curl https://yrvqeo1c17.execute-api.us-east-1.amazonaws.com/dev/password/123
+{"message":"Error: La longitud del password es menor 8 caracteres"}
+
+curl https://yrvqeo1c17.execute-api.us-east-1.amazonaws.com/dev/password/12345678
+{"message":"Error: El password es muy d├®bil","score":0}
+
+-------------------------------
+ejercicio 3
+
+serverless create --template aws-nodejs --path express-sls-06 --name express-srv-06 && cd express-sls-06
+npm init -y
+npm install --save express serverless-http
+
+
+cat serverless.yml
+
+service: express-srv-06
+
+provider:
+  name: aws
+  runtime: nodejs10.x
+  stage: dev
+  region: us-east-1
+  deploymentBucket:
+    name: cttraining-artifact
+    serverSideEncryption: AES256
+
+custom:
+  config:
+    stack_name: ${self:service}-${self:provider.stage}
+    deploymentBucket:
+      versioning: true
+
+functions:
+  app:
+    handler: handler.handler
+    events:
+      - http: ANY /
+      - http: ANY {proxy+}
+
+
+cat handler.js
+
+'use strict';
+
+const serverless = require('serverless-http');
+const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => {
+  res.send('Express API Powered by AWS Lambda!');
+});
+
+module.exports.handler = serverless(app);
+
+
+
+sls deploy
+
+Salida
+endpoints:
+  ANY - https://25pqqe36r4.execute-api.us-east-1.amazonaws.com/dev
+  ANY - https://25pqqe36r4.execute-api.us-east-1.amazonaws.com/dev/{proxy+}
+
+
+
+--------------
+
+mkdir dynamo-and-role
+
+cat serverless.yml
+
+service: hsbc-06-dynamo-role
+
+custom:
+  tableName: 'hsbc-06-${self:provider.stage}'
+
+provider:
+  name: aws
+  stage: dev
+
+resources:
+  Resources:
+    UsersDynamoDBTable:
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        AttributeDefinitions:
+          -
+            AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          -
+            AttributeName: userId
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:custom.tableName}
+
+    DynamoDBTableRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: ${self:service}-${self:custom.tableName}-role
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            -
+              Effect: Allow
+              Principal:
+                Service: lambda.amazonaws.com
+              Action:
+                - sts:AssumeRole
+        Path: /
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AWSLambdaFullAccess     
+        Policies:
+        - PolicyName: Manage-${self:custom.tableName}
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - 
+              Effect: Allow
+              Action:
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+              Resource:
+                - { "Fn::GetAtt": ["UsersDynamoDBTable", "Arn" ] }
+
+----------------------
+sls deploy
+
+mkdir dynamo-crud
+cd dynamo-crud
+
+cat serverless.yml
+
+service: ctraining-crud-srv-06
+
+provider:
+  name: aws
+  runtime: nodejs10.x
+  stage: dev
+  region: us-east-1
+  environment:
+    USERS_TABLE: hsbc-06-${self:provider.stage}
+  deploymentBucket:
+    name: cttraining-artifact
+    serverSideEncryption: AES256
+
+custom:
+  config:
+    stack_name: ${self:service}-${self:provider.stage}
+    tableName: hsbc-06-${self:provider.stage}
+    deploymentBucket:
+      versioning: true
+
+functions:
+  app:
+    handler: handler.handler
+    role: arn:aws:iam::173333554370:role/hsbc-06-dynamo-role-hsbc-06-dev-role
+    events:
+      - http: ANY /
+      - http: ANY {proxy+}
+
+
+cat handler.js
+
+'use strict';
+
+const serverless = require('serverless-http');
+const express = require('express');
+const app = express();
+
+const AWS = require('aws-sdk');
+const bodyParser = require('body-parser');
+const dynamoDB = new AWS.DynamoDB.DocumentClient();
+const USERS_TABLE = process.env.USERS_TABLE;
+app.use(bodyParser.urlencoded({extended: true}));
+
+app.get('/', (req, res) => {
+  res.send('Express API Powered by AWS Lambda!');
+});
+
+app.post('/users', (req, res) => {
+    const {userId, name} = req.body;
+    
+    const params = {
+      TableName: USERS_TABLE,
+      Item: {
+        userId, name
+      }
+    };
+    
+    dynamoDB.put(params, (error) => {
+        if (error) {
+          console.log(error);
+          res.status(400).json({
+            error: 'No se ha podido crear el usuario'
+          })
+        } else {
+          res.json({userId, name});
+        }
+    });
+});
+
+app.get('/users', (req, res) => {
+  const params = {
+    TableName: USERS_TABLE,
+  };
+  
+  dynamoDB.scan(params, (error, result) => {
+    if (error) {
+      console.log(error);
+      res.status(400).json({
+        error: 'No se ha podido acceder a los usuarios'
+      })
+    } else {
+      const {Items} = result;
+      res.json({
+        success: true,
+        message: 'Usuarios cargados correctamente',
+        users: Items
+      });
+    }
+  })
+});
+
+app.get('/users/:userId', (req, res) => {
+  const params = {
+    TableName: USERS_TABLE,
+    Key: {
+      userId: req.params.userId,
+    }
+  };
+  
+  dynamoDB.get(params, (error, result) => {
+    if (error) {
+      console.log(error);
+      return res.status(400).json({
+        error: 'No se ha podido acceder al usuario'
+      })
+    }
+    if (result.Item) {
+      const {userId, name} = result.Item;
+      return res.json({userId, name});
+    } else {
+      res.status(404).json({error: 'Usuario no encontrado'})
+    }
+  })
+});
+
+module.exports.handler = serverless(app);
+
+
+
+npm init -y
+npm install --save express serverless-http
+npm install --save aws-sdk body-parser
+
+sls deploy
+
+
+-----------------
+mkdir rds
+
+cat serverless.yml
+
+service: rds-hsbc-06
+
+provider:
+  name: aws
+  stage: staging
+  region: us-east-1
+  cfnRole: arn:aws:iam::${self:custom.config.${self:provider.stage}.aws-account-id}:role/CloudFormationExecutionRole
+  deploymentBucket:
+    name: ${self:custom.config.${self:provider.stage}.bucket-name}
+    serverSideEncryption: AES256
+
+custom:
+  deploymentBucket:
+    versioning: true
+  config:
+    staging:
+      aws-account-id: '173333554370'
+      bucket-name: cttraining-artifact
+    production:
+      aws-account-id: '5673335543890'
+      bucket-name: cttraining-artifact-prod
+
+resources:
+- ${file(rds.yml)}
+
+
+cat rds.yml
+
+Resources:
+    StackAlarmTopic:
+        Type: AWS::SNS::Topic
+        Properties:
+            DisplayName: Stack Alarm Topic
+
+    DatabaseSubnetGroup:
+        Type: AWS::RDS::DBSubnetGroup
+        Properties:
+            DBSubnetGroupDescription: serverless managed DB subnet group.
+            SubnetIds:
+                - Fn::ImportValue: PublicSubnetAZ1-${self:provider.stage}
+                - Fn::ImportValue: PublicSubnetAZ2-${self:provider.stage}
+                - Fn::ImportValue: PublicSubnetAZ3-${self:provider.stage}
+                - Fn::ImportValue: PublicSubnetAZ4-${self:provider.stage}
+
+    ParameterGroup:
+        Type: "AWS::RDS::DBParameterGroup"
+        Properties:
+            Description: cttraining DB parameter group
+            Family: MySQL5.7
+            Parameters:
+                max_connections: 300
+
+    DatabaseInstance:
+        Type: AWS::RDS::DBInstance
+        Properties:
+            Engine: mysql
+            EngineVersion: 5.7.19
+            DBInstanceClass: db.t2.micro
+            DBSubnetGroupName:
+                Ref: DatabaseSubnetGroup
+            DBParameterGroupName:
+                Ref: ParameterGroup
+            PubliclyAccessible: "true"
+            StorageType: "gp2"
+            AllocatedStorage: 20
+            BackupRetentionPeriod: 35
+            DBInstanceIdentifier: ${self:service}-${self:provider.stage}
+            MasterUsername: cttraining
+            MasterUserPassword: cttrainingcsmbwk2zeh29
+            PreferredBackupWindow: 02:00-03:00
+            PreferredMaintenanceWindow: mon:03:00-mon:04:00
+            VPCSecurityGroups:
+                - Ref: DatabaseSecurityGroup
+
+    DatabaseCPUAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmDescription: Primary database CPU utilization is over 80%.
+            Namespace: AWS/RDS
+            MetricName: CPUUtilization
+            Unit: Percent
+            Statistic: Average
+            Period: 300
+            EvaluationPeriods: 2
+            Threshold: 80
+            ComparisonOperator: GreaterThanOrEqualToThreshold
+            Dimensions:
+                - Name: DBInstanceIdentifier
+                  Value:
+                      Ref: DatabaseInstance
+            AlarmActions:
+                - Ref: StackAlarmTopic
+            InsufficientDataActions:
+                - Ref: StackAlarmTopic
+
+    DatabaseMemoryAlarm:
+        Type: AWS::CloudWatch::Alarm
+        Properties:
+            AlarmDescription: Primary database freeable memory is under 700MB.
+            Namespace: AWS/RDS
+            MetricName: FreeableMemory
+            Unit: Bytes
+            Statistic: Average
+            Period: 300
+            EvaluationPeriods: 2
+            Threshold: 700000000
+            ComparisonOperator: LessThanOrEqualToThreshold
+            Dimensions:
+                - Name: DBInstanceIdentifier
+                  Value:
+                      Ref: DatabaseInstance
+            AlarmActions:
+                - Ref: StackAlarmTopic
+            InsufficientDataActions:
+                - Ref: StackAlarmTopic
+            OKActions:
+                - Ref: StackAlarmTopic
+
+    DatabaseSecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            VpcId:
+              Fn::ImportValue: cttraining-vpc
+            GroupDescription: Access to database
+            SecurityGroupIngress:
+                - CidrIp: 0.0.0.0/0
+                  FromPort: 3306
+                  ToPort: 3306
+                  IpProtocol: tcp
+            Tags:
+                - Key: Name
+                  Value: ${self:service}-rds-security-group
+
+Outputs:
+  SecurityGroup:
+    Description: A reference to the created SecurityGroup
+    Value:
+      Ref: DatabaseSecurityGroup
+    Export:
+      Name: ${self:service}-rds-security-group
+
+
+cat todos.sql
+
+CREATE TABLE IF NOT EXISTS todos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    todo VARCHAR(45) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)  ENGINE=INNODB;
+
+sls deploy
+
+
+-------------------
+mkdr crud-mysql
+cd crud-mysql
+
+cat serverless.yml
+
+service: crud-mysql06
+
+provider:
+  name: aws
+  stage: staging
+  runtime: nodejs10.x
+  vpc:
+    securityGroupIds:
+      - Fn::ImportValue: rds-hsbc-06-rds-security-group
+    subnetIds:
+      - Fn::ImportValue: PublicSubnetAZ1-${self:provider.stage}
+      - Fn::ImportValue: PublicSubnetAZ2-${self:provider.stage}
+      - Fn::ImportValue: PublicSubnetAZ3-${self:provider.stage}
+      - Fn::ImportValue: PublicSubnetAZ4-${self:provider.stage}
+
+  apiKeys:
+    - ${file(./config.${self:provider.stage}.yml):API_KEY}
+
+functions:
+
+  findAll:
+    handler: crud/todos.findAll
+    events:
+      - http:
+          path: todos
+          method: get
+          private: true
+
+  findOne:
+    handler: crud/todos.findOne
+    events:
+      - http:
+          path: todos/{todo}
+          method: get
+          private: true
+
+  create:
+    handler: crud/todos.create
+    events:
+      - http:
+          path: todos
+          method: post
+
+  update:
+    handler: crud/todos.update
+    events:
+      - http:
+          path: todos/{todo}
+          method: put
+
+  delete:
+    handler: crud/todos.delete
+    events:
+      - http:
+          path: todos/{todo}
+          method: delete
+
+
+cat handler.js
+
+'use strict';
+const connection = require('./connection');
+
+module.exports.hello = (event, context, callback) => {
+  
+};
+
+
+cat connection.js
+
+const mysql = require('mysql');
+
+const configDB = {
+  host: 'rds-hsbc-06-staging.csmbwk2zeh29.us-east-1.rds.amazonaws.com',
+  user: 'cttraining',
+  password: 'cttrainingcsmbwk2zeh29',
+  port: '3306',
+  database: 'cttraining',
+  debug: true
+};
+
+function initializeConnection(config) {
+  function addDisconnectHandler(connection) {
+    connection.on("error", function (error) {
+      if (error instanceof Error) {
+        if (error.code === "PROTOCOL_CONNECTION_LOST") {
+          console.error(error.stack);
+          console.log("Lost connection. Reconnecting...");
+
+          initializeConnection(connection.config);
+        } else if (error.fatal) {
+          throw error;
+        }
+      }
+    });
+  }
+  
+  const connection = mysql.createConnection(config);
+
+  // Add handlers.
+  addDisconnectHandler(connection);
+
+  connection.connect();
+  return connection;
+}
+
+const connection = initializeConnection(configDB);
+
+module.exports = connection;
+
+
+cat config.staging.yml
+
+API_KEY: API_KEY_STAGING-06
+
+
+
+mkdir crud
+cd crud
+
+cat todos.js
+
+const connection = require('../connection');
+const queryString = require('querystring');
+
+module.exports.findAll = (event, context, callback) => {
+    context.callbackWaitsForEmptyEventLoop = false;
+    const sql = 'SELECT * FROM todos';
+    connection.query(sql, (error, rows) => {
+      if (error) {
+        callback({
+          statusCode: 500,
+          body: JSON.stringify(error)
+        })
+      } else {
+        callback(null, {
+          statusCode: 200,
+          body: JSON.stringify({
+            todos: rows
+          })
+        })
+      }
+    })
+};
+
+module.exports.findOne = (event, context, callback) => {
+  context.callbackWaitsForEmptyEventLoop = false;
+  const sql = 'SELECT * FROM todos WHERE id = ?';
+  connection.query(sql, [event.pathParameters.todo], (error, row) => {
+    if (error) {
+      callback({
+        statusCode: 500,
+        body: JSON.stringify(error)
+      })
+    } else {
+      callback(null, {
+        statusCode: 200,
+        body: JSON.stringify({
+          todo: row
+        })
+      })
+    }
+  })
+};
+
+module.exports.create = (event, context, callback) => {
+  context.callbackWaitsForEmptyEventLoop = false;
+  
+  const body = queryString.parse(event['body']);
+  const data = {
+    todo: body.todo
+  };
+  
+  const sql = 'INSERT INTO todos SET ?';
+  connection.query(sql, [data], (error, result) => {
+    if (error) {
+      callback({
+        statusCode: 500,
+        body: JSON.stringify(error)
+      })
+    } else {
+      callback(null, {
+        statusCode: 200,
+        body: JSON.stringify({
+          res: `Todo insertado correctamente con id ${result.insertId}`
+        })
+      })
+    }
+  })
+};
+
+module.exports.update = (event, context, callback) => {
+  context.callbackWaitsForEmptyEventLoop = false;
+
+  const body = queryString.parse(event['body']);
+
+  const sql = 'UPDATE todos SET todo = ? WHERE id = ?';
+  connection.query(sql, [body.todo, event.pathParameters.todo], (error, result) => {
+    if (error) {
+      callback({
+        statusCode: 500,
+        body: JSON.stringify(error)
+      })
+    } else {
+      callback(null, {
+        statusCode: 200,
+        body: JSON.stringify({
+          res: `Todo actualizado correctamente`
+        })
+      })
+    }
+  })
+};
+
+module.exports.delete = (event, context, callback) => {
+  context.callbackWaitsForEmptyEventLoop = false;
+  const sql = 'DELETE from todos WHERE id = ?';
+  connection.query(sql, [event.pathParameters.todo], (error, result) => {
+    if (error) {
+      callback({
+        statusCode: 500,
+        body: JSON.stringify(error)
+      })
+    } else {
+      callback(null, {
+        statusCode: 200,
+        body: JSON.stringify({
+          res: `Todo eliminado correctamente`
+        })
+      })
+    }
+  })
+};
+
+
+Clave de API
+8IimqL1UjM86wjEBfyPZtaNN74hXub7Z1WlK6xUv
+
+npm init -y
+npm install mysql querystring
+npm init -y
+sls deploy
+
+Salida
+  GET - https://ls2s5ha0bi.execute-api.us-east-1.amazonaws.com/staging/todos
+  GET - https://ls2s5ha0bi.execute-api.us-east-1.amazonaws.com/staging/todos/{todo}
+  POST - https://ls2s5ha0bi.execute-api.us-east-1.amazonaws.com/staging/todos
+  PUT - https://ls2s5ha0bi.execute-api.us-east-1.amazonaws.com/staging/todos/{todo}
+  DELETE - https://ls2s5ha0bi.execute-api.us-east-1.amazonaws.com/staging/todos/{todo}
+
+
+lanzar desde postman
+GET
+https://ls2s5ha0bi.execute-api.us-east-1.amazonaws.com/staging/todos
+Headers
+key: x-api-key
+value: 8IimqL1UjM86wjEBfyPZtaNN74hXub7Z1WlK6xUv
+
+
+GET
+curl https://ls2s5ha0bi.execute-api.us-east-1.amazonaws.com/staging/todos
+
+POST
+curl -d "name=Rodrigo&lastname=Albarran" -X POST https://upz1a4ys8g.execute-api.us-east-1.amazonaws.com/dev/user
+
+
